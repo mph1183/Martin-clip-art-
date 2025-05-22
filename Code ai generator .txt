@@ -1,0 +1,206 @@
+
+import React, { useState } from 'react';
+
+// Main App component for Martin's Clip Art Generator
+function App() {
+  const [initialPrompt, setInitialPrompt] = useState(''); // State to store the user's initial input for new generation
+  const [currentGenerationPrompt, setCurrentGenerationPrompt] = useState(''); // Stores the full prompt used for the *last* successful image generation (accumulates edits)
+  const [editPromptInput, setEditPromptInput] = useState(''); // State to store the text in the "refine" textarea
+  const [imageUrl, setImageUrl] = useState(''); // State to store the generated image URL
+  const [loading, setLoading] = useState(false); // State to manage loading status
+  const [error, setError] = useState(''); // State to store any error messages
+
+  /**
+   * Calls the image generation API with a given prompt.
+   * This function handles the common logic for both initial generation and refinement.
+   * @param {string} promptToUse - The full prompt string to send to the image generation model.
+   */
+  const callImageGenerationAPI = async (promptToUse) => {
+    setLoading(true); // Set loading to true while fetching
+    setError(''); // Clear any previous errors
+    setImageUrl(''); // Clear previous image before new generation
+
+    try {
+      // Construct the payload for the image generation API
+      // Always include "clip art style, high detail, upscaled, intricate details" for quality
+      const payload = {
+        instances: { prompt: `clip art style, high detail, upscaled, intricate details, ${promptToUse}` },
+        parameters: { "sampleCount": 1 } // Request one image
+      };
+
+      // API key is automatically provided by the Canvas environment
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+
+      // Make the fetch call to the image generation API
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      // Check if the response was successful
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || 'Failed to generate image');
+      }
+
+      const result = await response.json();
+
+      // Check if the image data is available in the response
+      if (result.predictions && result.predictions.length > 0 && result.predictions[0].bytesBase64Encoded) {
+        const base64Image = result.predictions[0].bytesBase64Encoded;
+        setImageUrl(`data:image/png;base64,${base64Image}`); // Set the image URL
+        setCurrentGenerationPrompt(promptToUse); // Store the exact prompt that successfully generated this image
+      } else {
+        throw new Error('No image data received from the API.');
+      }
+    } catch (err) {
+      console.error('Error generating clip art:', err);
+      setError(`Failed to generate clip art: ${err.message}`);
+    } finally {
+      setLoading(false); // Set loading to false after fetch completes
+    }
+  };
+
+  /**
+   * Handles the click event for the "Generate New Clip Art" button.
+   * Uses the initialPrompt state.
+   */
+  const handleGenerate = () => {
+    if (!initialPrompt.trim()) {
+      setError('Please enter a description for your initial clip art.');
+      return;
+    }
+    callImageGenerationAPI(initialPrompt);
+  };
+
+  /**
+   * Handles the click event for the "Refine Clip Art" button.
+   * Combines the currentGenerationPrompt with the editPromptInput.
+   */
+  const handleRefine = () => {
+    if (!editPromptInput.trim()) {
+      setError('Please enter details to refine your clip art.');
+      return;
+    }
+    if (!currentGenerationPrompt) {
+      setError('Please generate an initial clip art before refining.');
+      return;
+    }
+
+    // Combine the previously used prompt with the new refinement input
+    const newCombinedPrompt = `${currentGenerationPrompt}, ${editPromptInput}`;
+    callImageGenerationAPI(newCombinedPrompt);
+    setEditPromptInput(''); // Clear the edit input field after initiating refinement
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex flex-col items-center justify-center p-4 font-inter">
+      <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-xl w-full max-w-md md:max-w-lg lg:max-w-xl flex flex-col items-center">
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-indigo-800 mb-6 text-center">
+          🎨 Martin’s Clip Art Generator
+        </h1>
+
+        {/* Section for generating new clip art */}
+        <div className="w-full mb-6 border-b pb-6 border-gray-200">
+          <label htmlFor="initial-prompt-input" className="block text-gray-700 text-lg font-semibold mb-2">
+            Create new clip art:
+          </label>
+          <input
+            id="initial-prompt-input"
+            type="text"
+            value={initialPrompt}
+            onChange={(e) => setInitialPrompt(e.target.value)}
+            placeholder="e.g., a happy robot waving, a flying unicorn"
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200 ease-in-out text-base"
+            aria-label="Initial clip art description input"
+          />
+          <button
+            onClick={handleGenerate}
+            disabled={loading}
+            className={`mt-4 w-full py-3 px-6 rounded-xl text-white font-bold text-lg transition duration-300 ease-in-out transform hover:scale-105
+              ${loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 shadow-lg'}`}
+            aria-live="polite"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center">
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Generating...
+              </span>
+            ) : (
+              'Generate New Clip Art'
+            )}
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-6 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg w-full text-center" role="alert">
+            {error}
+          </div>
+        )}
+
+        {imageUrl && (
+          <div className="mt-8 w-full flex flex-col items-center">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-4">Your Clip Art:</h2>
+            <div className="bg-gray-200 rounded-xl p-2 shadow-md max-w-full overflow-hidden">
+              <img
+                src={imageUrl}
+                alt="Generated Clip Art"
+                className="max-w-full h-auto rounded-lg border border-gray-300"
+                onError={(e) => {
+                  e.target.onerror = null; // Prevent infinite loop on image load error
+                  e.target.src = "https://placehold.co/400x300/E0E0E0/6C757D?text=Image+Load+Error"; // Fallback placeholder image
+                  setError('Failed to load generated image. Please try again.');
+                }}
+              />
+            </div>
+            <p className="mt-4 text-sm text-gray-600 text-center">
+              Right-click or long-press the image to save it.
+            </p>
+
+            {/* Section for refining existing clip art */}
+            <div className="w-full mt-8 pt-6 border-t border-gray-200">
+              <label htmlFor="edit-prompt-input" className="block text-gray-700 text-lg font-semibold mb-2">
+                Refine this clip art:
+              </label>
+              <textarea
+                id="edit-prompt-input"
+                value={editPromptInput}
+                onChange={(e) => setEditPromptInput(e.target.value)}
+                placeholder="e.g., make it wear a hat, change the background to blue, add stars"
+                rows="3"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200 ease-in-out text-base resize-y"
+                aria-label="Refine clip art description input"
+              ></textarea>
+              <button
+                onClick={handleRefine}
+                disabled={loading}
+                className={`mt-4 w-full py-3 px-6 rounded-xl text-white font-bold text-lg transition duration-300 ease-in-out transform hover:scale-105
+                  ${loading ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 shadow-lg'}`}
+                aria-live="polite"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Refining...
+                  </span>
+                ) : (
+                  'Refine Clip Art'
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;
